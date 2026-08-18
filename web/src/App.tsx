@@ -10,7 +10,11 @@ import {
   Play,
   Pause,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Info,
+  BookOpen,
+  Check,
+  Circle
 } from 'lucide-react';
 import {
   autoTuneCloakColor,
@@ -18,6 +22,7 @@ import {
   processInvisibleCloakFrame,
   HsvRange
 } from './utils/cvEngine';
+import InstructionsModal from './components/InstructionsModal';
 
 export default function App() {
   // Camera & Stream State
@@ -30,15 +35,19 @@ export default function App() {
   const [isSelectingColor, setIsSelectingColor] = useState<boolean>(false);
   const [isInvisibleMode, setIsInvisibleMode] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>('Click "Allow Camera & Start" to begin.');
+  const [userGuidanceBanner, setUserGuidanceBanner] = useState<string | null>(null);
 
   // Countdown & Modals
   const [countdownNum, setCountdownNum] = useState<number | null>(null);
   const [showBgSuccessModal, setShowBgSuccessModal] = useState<boolean>(false);
   const [bgQualityError, setBgQualityError] = useState<string | null>(null);
   const [showColorSuccessModal, setShowColorSuccessModal] = useState<boolean>(false);
-  const [showHowItWorks, setShowHowItWorks] = useState<boolean>(false);
+  const [showInstructionsModal, setShowInstructionsModal] = useState<boolean>(false);
 
-  // Auto-Tuned Internal Parameters (Not exposed numerically in UI)
+  // Tooltip Visibility State
+  const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
+
+  // Auto-Tuned Parameters
   const [selectedRgbHex, setSelectedRgbHex] = useState<string | null>(null);
   const [hsvRanges, setHsvRanges] = useState<HsvRange[] | null>(null);
   const [bgSensitivity, setBgSensitivity] = useState<number>(22);
@@ -49,9 +58,10 @@ export default function App() {
   const bgImageDataRef = useRef<ImageData | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
 
-  // Start Camera Stream with explicit user action
+  // Start Camera Stream
   const requestCamera = async () => {
     setCameraError(null);
+    setUserGuidanceBanner(null);
     setStatusMessage('Requesting camera permission...');
 
     try {
@@ -74,13 +84,13 @@ export default function App() {
       }
 
       setIsCameraActive(true);
-      setStatusMessage('Camera ready. Move out of frame and click "Capture Background".');
+      setStatusMessage('Camera ready. Move out of frame and click "1. Capture Background".');
     } catch (err: any) {
       console.error('Camera Access Error:', err);
       setIsCameraActive(false);
 
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setCameraError('Camera access was denied. Please allow camera permissions in your browser address bar and try again.');
+        setCameraError('Camera access was denied. Please allow camera permissions in your browser settings and try again.');
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         setCameraError('No webcam device was detected on your system. Please attach a camera and retry.');
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
@@ -110,15 +120,19 @@ export default function App() {
     setStatusMessage('Camera stopped.');
   };
 
-  // Start Guided Background Capture Sequence (Get ready... 3, 2, 1)
+  // Start Guided Background Capture Sequence
   const startBackgroundCaptureSequence = () => {
-    if (!isCameraActive) return;
+    if (!isCameraActive) {
+      setUserGuidanceBanner('Please click "Allow Camera & Start" first!');
+      return;
+    }
 
+    setUserGuidanceBanner(null);
     setStatusMessage('Get ready... Move out of the camera frame!');
     setCountdownNum(3);
   };
 
-  // Execute Background Countdown & Capture
+  // Countdown Timer Execution
   useEffect(() => {
     if (countdownNum === null) return;
 
@@ -130,7 +144,6 @@ export default function App() {
     }
 
     if (countdownNum === 0) {
-      // Execute capture
       performBackgroundCapture();
       setCountdownNum(null);
     }
@@ -174,12 +187,20 @@ export default function App() {
 
   // Enable Color Selection Mode
   const enableColorSelection = () => {
-    if (!isCameraActive || !hasBackground) return;
+    if (!isCameraActive) {
+      setUserGuidanceBanner('Please start the camera first!');
+      return;
+    }
+    if (!hasBackground) {
+      setUserGuidanceBanner('Please capture your background first!');
+      return;
+    }
+    setUserGuidanceBanner(null);
     setIsSelectingColor(true);
-    setStatusMessage('Select your cloak color: Click on your cloak in the camera view.');
+    setStatusMessage('Select your cloak color: Click/tap on your cloak in the camera view.');
   };
 
-  // Handle Click / Tap on Canvas to Auto-Tune Cloak Color
+  // Handle Click / Tap on Canvas
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!isSelectingColor || !canvasRef.current) return;
 
@@ -208,7 +229,7 @@ export default function App() {
 
     const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    // Automatic Parameter Auto-Tuning Engine
+    // Auto-Tune parameters internally
     const tuned = autoTuneCloakColor(currentImageData, clickX, clickY, 3);
 
     setSelectedRgbHex(tuned.rgbHex);
@@ -223,8 +244,16 @@ export default function App() {
 
   // Toggle Invisible Mode
   const toggleInvisibleMode = () => {
-    if (!hasBackground || !hasColorSelected) return;
+    if (!hasBackground) {
+      setUserGuidanceBanner('Please capture your background first!');
+      return;
+    }
+    if (!hasColorSelected) {
+      setUserGuidanceBanner('Please select your cloak color first!');
+      return;
+    }
 
+    setUserGuidanceBanner(null);
     setIsInvisibleMode(!isInvisibleMode);
     if (!isInvisibleMode) {
       setStatusMessage('Invisible Mode Active ✨');
@@ -233,7 +262,7 @@ export default function App() {
     }
   };
 
-  // Reset Application to Initial State
+  // Reset Application State
   const resetAll = () => {
     setIsInvisibleMode(false);
     setIsSelectingColor(false);
@@ -245,6 +274,7 @@ export default function App() {
     setShowBgSuccessModal(false);
     setBgQualityError(null);
     setShowColorSuccessModal(false);
+    setUserGuidanceBanner(null);
     setStatusMessage('Ready to begin.');
   };
 
@@ -284,22 +314,22 @@ export default function App() {
             ctx.putImageData(outputImageData, 0, 0);
           }
 
-          // Visual Overlay during Countdown
+          // Countdown Overlay
           if (countdownNum !== null) {
-            ctx.fillStyle = 'rgba(2, 6, 23, 0.65)';
+            ctx.fillStyle = 'rgba(2, 6, 23, 0.68)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'center';
             ctx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
-            ctx.fillText('Get ready... Stay out of the frame!', canvas.width / 2, canvas.height / 2 - 40);
+            ctx.fillText('Get ready... Move out of frame!', canvas.width / 2, canvas.height / 2 - 40);
 
             ctx.fillStyle = '#38bdf8';
             ctx.font = 'bold 80px "Plus Jakarta Sans", sans-serif';
             ctx.fillText(countdownNum.toString(), canvas.width / 2, canvas.height / 2 + 30);
           }
 
-          // Visual Overlay during Color Selection Mode
+          // Color Selection Hint Overlay
           if (isSelectingColor && countdownNum === null) {
             ctx.fillStyle = '#00f0ff';
             ctx.textAlign = 'left';
@@ -325,7 +355,13 @@ export default function App() {
       {/* Hidden Video Source */}
       <video ref={videoRef} playsInline muted style={{ display: 'none' }} />
 
-      {/* Header */}
+      {/* Instructions Modal Component */}
+      <InstructionsModal
+        isOpen={showInstructionsModal}
+        onClose={() => setShowInstructionsModal(false)}
+      />
+
+      {/* Navigation Header */}
       <header className="glass-panel" style={{ margin: '15px 20px 5px', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Sparkles style={{ color: 'var(--accent-indigo)', width: 28, height: 28 }} />
@@ -340,9 +376,13 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button className="btn btn-secondary" onClick={() => setShowHowItWorks(!showHowItWorks)}>
-            <HelpCircle size={18} />
-            How It Works
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowInstructionsModal(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px' }}
+          >
+            <BookOpen size={18} style={{ color: '#818cf8' }} />
+            📖 How to Use
           </button>
 
           <div className="badge badge-info" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -360,13 +400,15 @@ export default function App() {
           <div className="glass-panel" style={{ flex: 1, minHeight: '480px', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
             
             {!isCameraActive ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', maxWidth: '460px' }}>
-                <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--accent-indigo)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-                  <Camera size={40} />
+              <div style={{ textAlign: 'center', padding: '30px 20px', maxWidth: '480px' }}>
+                <div style={{ width: 76, height: 76, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.15)', color: 'var(--accent-indigo)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
+                  <Sparkles size={38} />
                 </div>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '10px' }}>Allow Camera Access</h2>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: '24px', lineHeight: 1.6 }}>
-                  Experience real-time computer vision directly in your browser. All processing runs locally on your device.
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 700, marginBottom: '8px', color: '#ffffff' }}>
+                  ✨ Welcome to Invisible Cloak
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', marginBottom: '22px', lineHeight: 1.6 }}>
+                  Create an invisible-cloak effect using your webcam right in your browser. All frame processing is 100% local and private.
                 </p>
 
                 {cameraError && (
@@ -376,10 +418,17 @@ export default function App() {
                   </div>
                 )}
 
-                <button className="btn btn-primary" style={{ padding: '14px 28px', fontSize: '1.05rem', width: '100%' }} onClick={requestCamera}>
-                  <Camera size={20} />
-                  Allow Camera & Start
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <button className="btn btn-primary" style={{ padding: '13px 24px', fontSize: '1.02rem', width: '100%' }} onClick={requestCamera}>
+                    <Camera size={20} />
+                    Allow Camera & Start
+                  </button>
+
+                  <button className="btn btn-secondary" style={{ padding: '10px 20px', fontSize: '0.92rem', width: '100%' }} onClick={() => setShowInstructionsModal(true)}>
+                    <BookOpen size={18} />
+                    📖 How to Use
+                  </button>
+                </div>
               </div>
             ) : (
               <canvas
@@ -390,6 +439,14 @@ export default function App() {
               />
             )}
           </div>
+
+          {/* User Guidance Banner */}
+          {userGuidanceBanner && (
+            <div style={{ background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)', borderRadius: '10px', padding: '10px 16px', color: '#fda4af', fontSize: '0.88rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertTriangle size={18} />
+              {userGuidanceBanner}
+            </div>
+          )}
 
           {/* Status Label Bar */}
           <div className="glass-panel" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -404,40 +461,130 @@ export default function App() {
           </div>
         </section>
 
-        {/* Right Column: Consumer Controls Sidebar */}
+        {/* Right Column: Consumer Sidebar Controls & Step Tracker */}
         <aside className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          {/* Live Step Progress Tracker Widget */}
+          <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '16px', borderRadius: '14px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <h4 style={{ fontSize: '0.88rem', fontWeight: 700, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
+              Progress Steps
+            </h4>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.86rem' }}>
+              {/* Step 1 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: isCameraActive ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
+                {isCameraActive ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                <span style={{ fontWeight: isCameraActive ? 700 : 500 }}>1. Camera Ready</span>
+              </div>
+
+              {/* Step 2 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: hasBackground ? 'var(--accent-emerald)' : isCameraActive ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
+                {hasBackground ? <CheckCircle2 size={18} /> : isCameraActive ? <Circle size={18} style={{ color: 'var(--accent-cyan)' }} /> : <Circle size={18} />}
+                <span style={{ fontWeight: hasBackground ? 700 : 500 }}>2. Background Captured</span>
+              </div>
+
+              {/* Step 3 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: hasColorSelected ? 'var(--accent-emerald)' : hasBackground ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
+                {hasColorSelected ? <CheckCircle2 size={18} /> : hasBackground ? <Circle size={18} style={{ color: 'var(--accent-cyan)' }} /> : <Circle size={18} />}
+                <span style={{ fontWeight: hasColorSelected ? 700 : 500 }}>3. Cloak Color Selected</span>
+              </div>
+
+              {/* Step 4 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: isInvisibleMode ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
+                {isInvisibleMode ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                <span style={{ fontWeight: isInvisibleMode ? 700 : 500 }}>4. Invisible Mode Active</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Workflow Action Buttons with Contextual Tooltips */}
           <div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '14px', color: '#a5b4fc' }}>
-              Workflow Steps
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '12px', color: '#ffffff' }}>
+              Action Controls
             </h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button
-                className="btn btn-primary"
-                disabled={!isCameraActive || countdownNum !== null}
-                onClick={startBackgroundCaptureSequence}
-              >
-                <Camera size={18} />
-                {hasBackground ? 'Recapture Background' : '1. Capture Background'}
-              </button>
+              
+              {/* Button 1: Capture Background */}
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    className="btn btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={!isCameraActive || countdownNum !== null}
+                    onClick={startBackgroundCaptureSequence}
+                  >
+                    <Camera size={18} />
+                    {hasBackground ? 'Recapture Background' : '1. Capture Background'}
+                  </button>
+                  <button
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '0 10px', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    onClick={() => setActiveTooltip(activeTooltip === 'bg' ? null : 'bg')}
+                    aria-label="Background Info"
+                  >
+                    <Info size={16} />
+                  </button>
+                </div>
+                {activeTooltip === 'bg' && (
+                  <div style={{ background: '#1e293b', border: '1px solid #475569', borderRadius: '8px', padding: '10px 12px', fontSize: '0.78rem', color: '#f8fafc', marginTop: '6px', position: 'relative', zIndex: 10 }}>
+                    First capture an empty background. Keep yourself and moving objects out of the frame.
+                  </div>
+                )}
+              </div>
 
-              <button
-                className="btn btn-secondary"
-                disabled={!isCameraActive || !hasBackground}
-                onClick={enableColorSelection}
-              >
-                <Pipette size={18} />
-                {hasColorSelected ? 'Reselect Cloak Color' : '2. Select Cloak Color'}
-              </button>
+              {/* Button 2: Select Cloak Color */}
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ flex: 1 }}
+                    disabled={!isCameraActive || !hasBackground}
+                    onClick={enableColorSelection}
+                  >
+                    <Pipette size={18} />
+                    {hasColorSelected ? 'Reselect Cloak Color' : '2. Select Cloak Color'}
+                  </button>
+                  <button
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '0 10px', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    onClick={() => setActiveTooltip(activeTooltip === 'color' ? null : 'color')}
+                    aria-label="Color Info"
+                  >
+                    <Info size={16} />
+                  </button>
+                </div>
+                {activeTooltip === 'color' && (
+                  <div style={{ background: '#1e293b', border: '1px solid #475569', borderRadius: '8px', padding: '10px 12px', fontSize: '0.78rem', color: '#f8fafc', marginTop: '6px', position: 'relative', zIndex: 10 }}>
+                    Click on the middle of your cloak on the video feed to let the app identify its color.
+                  </div>
+                )}
+              </div>
 
-              <button
-                className={`btn ${isInvisibleMode ? 'btn-danger' : 'btn-success'}`}
-                disabled={!isCameraActive || !hasBackground || !hasColorSelected}
-                onClick={toggleInvisibleMode}
-              >
-                {isInvisibleMode ? <Pause size={18} /> : <Play size={18} />}
-                {isInvisibleMode ? 'Pause Invisible Mode' : '3. Start Invisible Mode'}
-              </button>
+              {/* Button 3: Start Invisible Mode */}
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    className={`btn ${isInvisibleMode ? 'btn-danger' : 'btn-success'}`}
+                    style={{ flex: 1 }}
+                    disabled={!isCameraActive || !hasBackground || !hasColorSelected}
+                    onClick={toggleInvisibleMode}
+                  >
+                    {isInvisibleMode ? <Pause size={18} /> : <Play size={18} />}
+                    {isInvisibleMode ? 'Pause Invisible Mode' : '3. Start Invisible Mode'}
+                  </button>
+                  <button
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '0 10px', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    onClick={() => setActiveTooltip(activeTooltip === 'mode' ? null : 'mode')}
+                    aria-label="Mode Info"
+                  >
+                    <Info size={16} />
+                  </button>
+                </div>
+                {activeTooltip === 'mode' && (
+                  <div style={{ background: '#1e293b', border: '1px solid #475569', borderRadius: '8px', padding: '10px 12px', fontSize: '0.78rem', color: '#f8fafc', marginTop: '6px', position: 'relative', zIndex: 10 }}>
+                    Replaces the selected cloak area with the previously captured background.
+                  </div>
+                )}
+              </div>
 
               <button className="btn btn-secondary" style={{ marginTop: '6px' }} onClick={resetAll}>
                 <RefreshCw size={16} /> Reset All
@@ -445,7 +592,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Simple Color Swatch Indicator (NO HSV NUMBERS EXPOSED) */}
+          {/* Simple Swatch Preview */}
           {selectedRgbHex && (
             <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '14px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Selected Cloak Color:</span>
@@ -514,24 +661,6 @@ export default function App() {
             </p>
             <button className="btn btn-success" style={{ width: '100%', padding: '12px' }} onClick={() => setShowColorSuccessModal(false)}>
               OK
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* POPUP MODAL 4: How It Works Guide */}
-      {showHowItWorks && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-panel" style={{ maxWidth: '580px', width: '100%', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px', color: '#a5b4fc' }}>🧠 How the Invisible Cloak Algorithm Works</h3>
-            <ol style={{ paddingLeft: '20px', lineHeight: 1.8, fontSize: '0.92rem', color: 'var(--text-muted)' }}>
-              <li><strong style={{ color: '#fff' }}>Background Capture:</strong> Stores a clean snapshot of your static background room.</li>
-              <li><strong style={{ color: '#fff' }}>Adaptive Color Isolation:</strong> Automatically calculates optimal color bounds for your cloak.</li>
-              <li><strong style={{ color: '#fff' }}>Background Difference Filter:</strong> Compares live frames against background to ensure matching background objects stay visible.</li>
-              <li><strong style={{ color: '#fff' }}>Real-Time Blending:</strong> Seamlessly substitutes cloak pixels with saved background pixels.</li>
-            </ol>
-            <button className="btn btn-primary" style={{ marginTop: '24px', width: '100%' }} onClick={() => setShowHowItWorks(false)}>
-              Got It! Close Window
             </button>
           </div>
         </div>
